@@ -319,10 +319,10 @@ if __name__ == "__main__":
     # get all pics
     all_pics = os.listdir(picpath)
     random.shuffle(all_pics)
-    i = 1000
+    i = 0
     rs = []
     for pic in all_pics * 10:
-        if i >= 3500:
+        if i >= 249:
             break
         if re.search(r'\.jpg$', pic):
             LOG.debug('create info for pic: %s' % pic)
@@ -332,15 +332,15 @@ if __name__ == "__main__":
                 pic_str = base64.b64encode(f.read()).decode('utf-8')
             pic_type = 'jpeg'
             id = '%04d' % i
-            r["name"] = "指纹无脸君" + id
-            r["idenNum"] = "21122319870806" + id
-            r["phone"] = "1888886" + id
-            #r["fileName"] = r["name"] + '.jpg'
-            #r["facePicBase64"] = "data:image/" + pic_type + ';base64,' + pic_str
-            r["fingerCode1"] = fingerCode_list[random.randint(0, len(fingerCode_list) - 1)]
+            r["name"] = "大头虾" + id
+            r["idenNum"] = "21122319870606" + id
+            r["phone"] = "1888885" + id
+            r["fileName"] = r["name"] + '.jpg'
+            r["facePicBase64"] = "data:image/" + pic_type + ';base64,' + pic_str
+            #r["fingerCode1"] = fingerCode_list[random.randint(0, len(fingerCode_list) - 1)]
             i += 1
             rs.append(r)
-            LOG.warn('name: %s, picname: %s, fingerCode1: %s' % (r["name"], pic, r["fingerCode1"]))
+            #LOG.warn('name: %s, picname: %s, fingerCode1: %s' % (r["name"], pic, r["fingerCode1"]))
         else:
             continue
 

@@ -1,0 +1,5 @@
+{
+    "http://192.168.0.236:81/scp-informationreleaseapp/schedule/insert": {
+        "response code": "200 vs 500"
+    }
+}

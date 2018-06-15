@@ -5,7 +5,7 @@ import sys
 work_dir = os.path.abspath(os.path.dirname(sys.argv[0]))
 
 
-server_IP = '192.168.0.94'
+server_IP = '192.168.0.236'
 server_port = 81
 
 server_IP2 = '192.168.0.86'
@@ -22,3 +22,14 @@ PostgreSQL = {
     "db": "hdsc_db",
     "port": "5432"
 }
+
+replay_files = ['refuse.gor']
+record_dir = 'records' + os.path.sep
+result_dir = 'result' + os.path.sep
+white_list_dir = 'white_list' + os.path.sep
+fitter_dir = 'fitters' + os.path.sep
+
+
+# 巡更应用
+patrol_para_name = u'路飞'
+patrol_plan_name = 'autotest'

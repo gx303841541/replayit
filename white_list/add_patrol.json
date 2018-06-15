@@ -1,0 +1,5 @@
+{
+    "http://192.168.0.236:81/scp-patrolapp/scheduleMng/insertSchedule": {
+        "response code": "200 vs 500"
+    }
+}

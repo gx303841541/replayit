@@ -3,6 +3,7 @@
 # @author: zhangzhao_lenovo@126.com
 # @date: 20161005
 # @version: 1.0.0.1009
+import copy
 import datetime
 import difflib
 import json
@@ -13,13 +14,14 @@ import re
 import sys
 import time
 import urllib.parse
-from collections import deque
+from collections import defaultdict, deque
+from importlib import import_module
+from pathlib import *
 
 import psycopg2
 import requests
 
 import config
-import fitters
 import middleware
 from basic.log_tool import MyLogger
 
@@ -53,31 +55,41 @@ def readfile(fpath, encoding='utf-16-le'):
                 return
 
 
-def getlasttestcase(x):
-    l = os.listdir(x)
-    l.sort(key=lambda fn: os.path.getmtime(x + fn) if (not os.path.isdir(x + fn)
-                                                       and (os.path.splitext(fn))[-1] == '.txt') else 0)
-    return x + l[-1]
-
-
-def getdate():
-    return time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime(time.time()))
-
-
-def getwhitelist():
+def get_whitelist(record):
+    w = {}
+    whitefile = config.white_list_dir + record.replace('.gor', '.json')
     if not os.path.exists(whitefile):
-        return 0
-    w = []
-    for line in open(whitefile, 'r'):
-        if '.' in line:
-            line.replace("\n", "")
-            w.append(line)
+        return w
+    f = open(whitefile, 'r')
+    w = json.loads(f.read())
     return w
 
 
-def gettestcase():
+def create_whitelist(testcases, name):
+    LOG.info('Create new %s' % name)
+    results = defaultdict(lambda: {})
+    for rtime in testcases:
+        if testcases[rtime]['diff']:
+            results[testcases[rtime]['url']].update(testcases[rtime]['diff'])
+    fix_dict(results)
+    with open(name, 'w') as f:
+        f.write(json.dumps(results, sort_keys=True, indent=4,
+                           separators=(',', ': '), ensure_ascii=False))
+
+
+def getlasttestcase(record):
+    l = os.listdir(config.result_dir)
+    l.sort(key=lambda fn: os.path.getmtime(config.result_dir + fn)
+           if os.path.isdir(config.result_dir + fn) else 0)
+    if l:
+        last_dir = config.result_dir + l[-1]
+    else:
+        return 0
+    l = os.listdir(last_dir)
+    l.sort(key=lambda fn: os.path.getmtime(last_dir + fn) if (not os.path.isdir(last_dir + fn)
+                                                              and (os.path.splitext(fn))[-1] == '.txt') else 0)
     try:
-        return pickle.load(open(getlasttestcase(workpath + "result\\"), 'rb'))
+        return pickle.load(open(l[-1], 'rb'))
     except Exception as e:
         return 0
 
@@ -139,6 +151,8 @@ def finddiffindict2(url, dict1, key, value, path, type, info, finddiff, rule, ne
             path.remove(k)
     return finddiff
 
+    diffdict(url, body1, body2, [], 'body', {}, 1, newwhitelist)
+
 
 def diffdict(url, dict1, dict2, path, type, info, rule, newwhitelist):
     filter = setfilter(url, type)
@@ -181,50 +195,140 @@ def diffdict(url, dict1, dict2, path, type, info, rule, newwhitelist):
             path.remove(k)
 
 
-def check(id, url, params, code1, header1, body1, code2, header2, body2):
-    global failnum
+# just as its name implies
+def list_compare(template, target):
+    diff = {}
+    if not isinstance(template, list) and not isinstance(target, list):
+        LOG.error("template[%s] or target[%s] is not list instance!" %
+                  (str(type(template)), str(type(target))))
+        return 'mismatch'
+
+    if len(template) == len(target):
+        for id in range(len(template)):
+            if isinstance(template[id], list) and isinstance(target[id], list):
+                diff[str(id)] = list_compare(template[id], target[id])
+            elif isinstance(template[id], dict) and isinstance(target[id], dict):
+                diff[str(id)] = dict_compare(template[id], target[id])
+    else:
+        diff = 'length ' + str(len(template)) + ' vs ' + str(len(target))
+
+    return diff
+
+
+# just as its name implies
+def dict_compare(template, target):
+    diff = {}
+    if not isinstance(template, dict) and not isinstance(target, dict):
+        if isinstance(template, list) and isinstance(target, list):
+            if set(template) == set(target):
+                return ''
+            else:
+                return 'list_mismatch'
+        LOG.error("template[%s] or target[%s] is not dict instance!" %
+                  (str(type(template)), str(type(target))))
+        return 'mismatch'
+    elif not isinstance(template, dict):
+        template = {'Fuck': template}
+
+    if template == target:
+        return diff
+    else:
+        for key in template:
+            if key in target:
+                if isinstance(template[key], dict) and isinstance(target[key], dict):
+                    temp = dict_compare(template[key], target[key])
+                    if temp:
+                        diff[key] = temp
+                elif isinstance(template[key], dict) or isinstance(target[key], dict):
+                    diff[key] = 'missed'
+                elif isinstance(template[key], list) and isinstance(target[key], list):
+                    temp = list_compare(template[key], target[key])
+                    if temp:
+                        diff[key] = temp
+                elif template[key] != target[key]:
+                    diff[key] = str(template[key]) + ' vs ' + str(target[key])
+                else:
+                    pass
+            else:
+                diff[key] = 'missed'
+
+        for key in target:
+            if key in template:
+                if isinstance(template[key], dict) and isinstance(target[key], dict):
+                    temp = dict_compare(template[key], target[key])
+                    if temp:
+                        diff[key] = temp
+                elif isinstance(template[key], dict) or isinstance(target[key], dict):
+                    diff[key] = 'missed'
+                elif isinstance(template[key], list) and isinstance(target[key], list):
+                    temp = list_compare(template[key], target[key])
+                    if temp:
+                        diff[key] = temp
+                elif template[key] != target[key]:
+                    diff[key] = str(template[key]) + ' vs ' + str(target[key])
+                else:
+                    pass
+            else:
+                diff[key] = 'added'
+    return diff
+
+
+def dict_sub(dict1, dict2):
+    for key in dict2:
+        if key in dict1:
+            if isinstance(dict1[key], dict) and isinstance(dict2[key], dict):
+                dict_sub(dict1[key], dict2[key])
+            elif isinstance(dict1[key], list) and isinstance(dict2[key], list):
+                LOG.error('white has list?')
+            else:
+                del(dict1[key])
+        else:
+            #LOG.error('skip key %s' % key)
+            # LOG.warn(str(dict1.keys()))
+            # LOG.warn(str(dict2.keys()))
+            continue
+    fix_dict(dict1)
+
+
+def fix_dict(dict1):
+    temp_dict = copy.deepcopy(dict1)
+    for key in temp_dict:
+        if isinstance(temp_dict[key], dict):
+            if temp_dict[key]:
+                fix_dict(dict1[key])
+
+                if not dict1[key]:
+                    del(dict1[key])
+            else:
+                del(dict1[key])
+
+
+def check(url, code1, body1, code2, body2):
     diff = {}
     tmp = {}
-    result = {}
-    result['api'] = url + " " + params
-    result['test differences'] = diff
     url = (re.compile(r'://(.+)').findall(bool(url[-1] == '?') and url[0:-1] or url))[0]
     if diffstr(str(code1), str(code2)):
-        tmp = {}
-        diffdict(url, header1, header2, [], 'header', tmp, 1, newwhitelist)
-        diffdict(url, header2, header1, [], 'header', tmp, 0, newwhitelist)
-        if tmp:
-            diff['response headers'] = tmp
-            tmp = {}
-        diffdict(url, body1, body2, [], 'body', tmp, 1, newwhitelist)
-        diffdict(url, body2, body1, [], 'body', tmp, 0, newwhitelist)
-        if tmp:
-            diff['response body'] = tmp
+        diff = dict_compare(body1, body2)
+        fix_dict(diff)
     else:
-        diff['response code'] = (code1, code2)
-    if not diff:
-        result['result'] = 'PASS'
-    else:
-        result['result'] = 'FAIL'
-        failnum += 1
-    testresults[id] = result
+        diff['response code'] = str(code1) + ' vs ' + str(code2)
+    return diff
 
 
 def update_token():
     global token
-    print('update_token')
-    url = "http://%s:%d/%s" % ('192.168.0.236',
-                               81, "/scp-usermgmtcomponent/admin/login?username=test&password=dGVzdA==")
-    print(url)
+    LOG.debug('update_token')
+    url = "http://%s:%d/%s" % (config.server_IP,
+                               config.server_port, "/scp-usermgmtcomponent/admin/login?username=test&password=dGVzdA==")
     header = {
         "FrontType": 'scp-admin-ui',
     }
     resp = requests.get(url, headers=header)
     try:
         token = resp.json()['data']['token']
-        print("Get token: " + token)
+        LOG.debug("Get token: " + token)
     except Exception as e:
-        print('get token fail![%s]' % (str(e)))
+        LOG.debug('get token fail![%s]' % (str(e)))
 
 
 def send(url, method, payload, headers, **attrs):
@@ -237,14 +341,18 @@ def send(url, method, payload, headers, **attrs):
         }
         LOG.info('POST url: ' + url)
         # LOG.yinfo('head: ' + convert_to_dictstr(headers))
-        LOG.info('bodys: ' + json.dumps(payload))
+        LOG.debug('bodys: ' + json.dumps(payload))
         try:
             r = requests.post(url, data=json.dumps(payload), headers=headers, timeout=10)
-            LOG.warn('status_code: ' + str(r.status_code))
             try:
-                LOG.warn('resp: ' + convert_to_dictstr(r.json()))
+                if isinstance(r.json(), list):
+                    src = {'Fuck': r.json()}
+                else:
+                    src = r.json()
+                LOG.yinfo('resp %s: ' % (str(r.status_code)) + convert_to_dictstr(src))
             except json.decoder.JSONDecodeError:
-                LOG.warn('resp: ' + r.text)
+                LOG.yinfo('resp %s: ' % (str(r.status_code)) + r.text)
+                src = {'Fuck': r.text}
         except Exception as e:
             LOG.error('error: ' + str(e))
 
@@ -257,17 +365,18 @@ def send(url, method, payload, headers, **attrs):
         }
         LOG.info('GET url: ' + url)
         # LOG.yinfo('head: ' + convert_to_dictstr(headers))
-        LOG.info('bodys: ' + json.dumps(payload))
+        LOG.debug('bodys: ' + json.dumps(payload))
         try:
             r = requests.get(url, data=payload, headers=headers, timeout=10, **attrs)
-            if isinstance(r.json(), list):
-                src = {'Fuck': r.json()}
-            else:
-                src = r.json()
             try:
-                LOG.warn('resp: ' + convert_to_dictstr(src))
+                if isinstance(r.json(), list):
+                    src = {'Fuck': r.json()}
+                else:
+                    src = r.json()
+                LOG.yinfo('resp %s: ' % (str(r.status_code)) + convert_to_dictstr(src))
             except json.decoder.JSONDecodeError:
-                LOG.warn('resp: ' + r.text)
+                LOG.yinfo('resp %s: ' % (str(r.status_code)) + r.text)
+                src = {'Fuck': r.text}
         except Exception as e:
             LOG.error('error: ' + str(e))
 
@@ -280,18 +389,21 @@ def send(url, method, payload, headers, **attrs):
 
 
 def jsontodict(str):
-    LOG.yinfo(str)
     try:
         return json.loads(str)
     except json.decoder.JSONDecodeError:
-        LOG.info('{"fuck": "' + str + '"}')
-        return json.loads('{"fuck": "' + str + '"}')
+        return json.loads('{"Fuck": "' + str + '"}')
     except:
         return json.loads(re.compile(r'({.+})').findall(str)[0])
 
 
 def strtodict(s, sp='&', op='='):
     dict = {}
+    try:
+        payload = json.loads(s)
+        return payload
+    except json.decoder.JSONDecodeError:
+        pass
 
     try:
         payload = json.loads(str(s))
@@ -300,7 +412,7 @@ def strtodict(s, sp='&', op='='):
         pass
 
     try:
-        payload = eval(params)
+        payload = eval(a)
         return payload
     except NameError:
         pass
@@ -321,12 +433,10 @@ def strtodict(s, sp='&', op='='):
 def testcasebuild(str):
     def replacesplit(str):
         return str.replace("\n", "").split(" ")[-1]
-    global testnum
-    testnum += 1
     (request, response) = str.split('Response ', 1)
     (_, rid, ishttps, rurl, _, requesquery, requestheader, requestbody) = request.split('Request ')
     (_, rop, ruid, rtime, raid) = rid.replace("\n", "").split(" ")
-    #LOG.debug('get %s' % rtime)
+    # LOG.debug('get %s' % rtime)
     (_, responsecode, reaponseheader, responsebody) = response.split('Response ')
     url = rurl.split('url: ')[-1].strip()
     params = replacesplit(requesquery)
@@ -345,9 +455,10 @@ def testcasebuild(str):
     reaponseheader = strtodict(reaponseheader, '\n', ': ')
     if 'header' in reaponseheader:
         del reaponseheader['header']
-    responsebody = re.compile(r'body: (.+)').findall(responsebody.split("\n")[0])[0]
+    responsebody = re.compile(r'body: (.*)').findall(responsebody.split("\n")[0])[0]
     if payload == '' and requestbody != '':
-        payload = strtodict(requestbody.split()[-1])
+        payload = strtodict(requestbody[6:])
+        # LOG.debug(requestbody[6:])
     else:
         # LOG.debug('xxx')
         pass
@@ -358,7 +469,7 @@ def testcasebuild(str):
         url = "https://" + url
     else:
         url = 'http://' + url
-    #LOG.debug('get %s' % rtime)
+    # LOG.debug('get %s' % rtime)
     #LOG.debug('payload %s' % payload)
     return url, method, payload, requestheader, rtime, params, https, responsecode, reaponseheader, responsebody
 
@@ -402,6 +513,7 @@ def DB_sql_send(table, whichone):
 
 def setup(url, body):
     LOG.debug('URL before setup: %s' % (url))
+    skip_flag = False
     req_list = []
     DB_list = []
     config_url = url
@@ -413,22 +525,23 @@ def setup(url, body):
                 elif re.search(r'^DB', item) and fitters.fitters[t_url]['setup'][item]:
                     DB_list.append(item)
             config_url = t_url
+            if 'skip' in fitters.fitters[t_url]:
+                skip_flag = fitters.fitters[t_url]['skip']
             break
 
     for item in sorted(DB_list):
-        if fitters.fitters[config_url]['setup'][item]:
-            update_config_from_DB(fitters.fitters[config_url]['setup'][item]['table'], fitters.fitters[config_url]
-                                  ['setup'][item]['where'], fitters.fitters[config_url]['setup'][item]['target'])
+        update_config_from_DB(fitters.fitters[config_url]['setup'][item]['table'], fitters.fitters[config_url]
+                              ['setup'][item]['where'], fitters.fitters[config_url]['setup'][item]['target'])
 
     for item in req_list:
         url, body = update_req_by_config(url, body, fitters.fitters[config_url]['setup'][item])
 
     LOG.debug('URL after  setup: %s' % (url))
-    return url, body
+    return url, body, skip_flag
 
 
 def teardown(url, body):
-    #LOG.debug('URL before teardown: %s' % (url))
+    LOG.debug('teardown start...')
     resp_list = []
     DB_list = []
     config_url = url
@@ -439,18 +552,20 @@ def teardown(url, body):
                     resp_list.append(item)
                 elif re.search(r'^DB', item) and fitters.fitters[t_url]['teardown'][item]:
                     DB_list.append(item)
-        config_url = t_url
-        break
+
+            config_url = t_url
+            break
 
     for item in sorted(DB_list):
-        if fitters.fitters[t_url]['teardown'][item]:
-            update_config_from_DB(fitters.fitters[t_url]['teardown'][item]['table'], fitters.fitters[t_url]
-                                  ['teardown'][item]['where'], fitters.fitters[t_url]['teardown'][item]['target'])
+        update_config_from_DB(fitters.fitters[t_url]['teardown'][item]['table'], fitters.fitters[t_url]
+                              ['teardown'][item]['where'], fitters.fitters[t_url]['teardown'][item]['target'])
 
     for item in resp_list:
         update_config_from_resp(body, fitters.fitters[t_url]['teardown'][item])
-    LOG.debug('config after teardown:')
-    # config_dumps()
+
+    LOG.debug('config info after teardown:')
+    config_dumps()
+    LOG.debug('teardown end')
     return body
 
 
@@ -471,25 +586,27 @@ def update_config_from_resp(body, target):
 
 def update_req_by_config(url, body, target):
     config.__dict__['store'] = 'xxoo'
+    if not target['key'] in config.__dict__:
+        LOG.warn('fix url: %s failed, [%s] not found in config!' % (url, target['key']))
+        return url, body
     value = config.__dict__[target['key']]
     target_field = body
     field_list = target['field'].split('.')
     if target_field:
         while field_list:
             item = field_list[0]
-            LOG.warn(item)
             field_list = field_list[1:]
             if re.match(r'\*', item):
                 for id in range(len(target_field)):
-                    LOG.yinfo(str(id))
-                    LOG.yinfo(str(target_field[id]))
+                    LOG.debug(str(id))
+                    LOG.debug(str(target_field[id]))
                     if type(target_field[id]) == type([]) or type(target_field[id]) == type({}):
-                        LOG.info('Dict')
+                        LOG.debug('Dict')
                         subtarget_field = target_field[id]
                         subfield_list = field_list[:]
                         while subfield_list:
                             item = subfield_list[0]
-                            LOG.warn(item)
+                            LOG.debug(item)
                             subfield_list = subfield_list[1:]
                             if type(subtarget_field[item]) == type([]) or type(subtarget_field[item]) == type({}):
                                 subtarget_field = subtarget_field[item]
@@ -498,13 +615,15 @@ def update_req_by_config(url, body, target):
                                     config.__dict__[item] = subtarget_field[item]
                                 else:
                                     subtarget_field[item] = config.__dict__[target['key']]
-                        LOG.info(str(target_field[id]))
+                        LOG.debug(str(target_field[id]))
                     else:
                         target_field[id] = config.__dict__[target['key']]
                 break
 
             else:
-                if type(target_field[item]) == type([]) or type(target_field[item]) == type({}):
+                if item == 'while_list':
+                    body = [config.__dict__[target['key']]]
+                elif type(target_field[item]) == type([]) or type(target_field[item]) == type({}):
                     target_field = target_field[item]
                 else:
                     if target['key'] == 'store':
@@ -524,7 +643,7 @@ def config_dumps():
         if item.startswith('_') or (type(config.__dict__[item]) == type(os)):
             continue
         config_dict[item] = config.__dict__[item]
-    LOG.info(convert_to_dictstr(config_dict))
+    LOG.debug(convert_to_dictstr(config_dict))
 
 
 def update_config_from_DB(table, whichone, item_list):
@@ -559,8 +678,16 @@ def data_wash(data):
 
 
 def process(str):
+    testcase = {}
     url, method, payload, headers, rtime, params, https, code1, header1, body1 = testcasebuild(str)
-    url, payload = setup(url, payload)
+    url, payload, skip_flag = setup(url, payload)
+    if skip_flag:
+        testcase["url"] = url
+        testcase["params"] = params
+        testcase["diff"] = {}
+        testcase['rtime'] = rtime
+        return testcase
+
     try:
         if https:
             (code2, body2, header2) = send(url, method, payload, headers, verify=False)
@@ -572,79 +699,20 @@ def process(str):
         (code2, body2, header2) = ('send except!', '{"errno":""}', {})
     # config_dumps()
     header2 = dict(header2)
-    if not lasttestcase or rtime not in lasttestcase:
-        body1 = jsontodict(body1)
-        print("send done,checking self record...\n")
-        check(rtime, url, params, code1, header1, body1, code2, header2, body2)
-    else:
-        print("send done,checking last test...\n")
-        check(rtime, url, params, lasttestcase[rtime]['response code'], lasttestcase[rtime]
-              ['response header'], lasttestcase[rtime]['response body'], code2, header2, body2)
-    testcase = {}
+    body1 = jsontodict(body1)
+
+    diff = check(url, code1, body1, code2, body2)
+
     testcase["url"] = url
     if params == '':
         params = payload
     testcase["params"] = params
     testcase["response code"] = code2
-    testcase["response header"] = dict(header2)
+    #testcase["response header"] = dict(header2)
     testcase["response body"] = body2
-    testcases[rtime] = testcase
-    return (code2, body2, header2)
-
-
-def fifoprocess(queue, n):
-    LOG.info('Total %d case' % n)
-    while True:
-        try:
-            n -= 1
-            j = n
-            str = queue.popleft()
-            (code, body, header) = process(str)
-            while(j > 0):
-                queue.append(middleware.rule(str, body, header, queue.popleft()))
-                j -= 1
-            fifoprocess(queue, n)
-        except IndexError:
-            break
-
-
-def run(dataflow):
-    session = ''
-    sessionid = ''
-    pattern = re.compile(r'(\w+)')
-    try:
-        for i in open(recordfile, encoding='utf-16-le'):
-            if not i.startswith("\n"):
-                i = i.replace("\ufeff", "")
-                session += i
-            if i.startswith("Request id: "):
-                id, sessionid = (int(pattern.findall(i)[4]), pattern.findall(i)[3])
-                LOG.warn('find ID: %d' % id)
-            if i.startswith(sessionid + " end"):
-                dataflow[id] = session
-                session = ''
-    except Exception as e:
-        print("api record file open error, exit!")
-        exit()
-    if os.path.exists(removefile):
-        try:
-            for i in open(removefile, encoding='utf-16-le'):
-                if not i.startswith("\n"):
-                    i = i.replace("\ufeff", "")
-                    if i.startswith("Request id: "):
-                        id = int(pattern.findall(i)[4])
-
-                        if id in dataflow:
-                            del dataflow[id]
-        except Exception as e:
-            print("api removefile file open error, exit test!")
-            exit()
-    dataflow = sorted(dataflow.items(), key=lambda x: x[0], reverse=False)
-    n = 0
-    for k, v in dataflow:
-        Queue.append(v)
-        n += 1
-    fifoprocess(Queue, n)
+    testcase["diff"] = copy.deepcopy(diff)
+    testcase['rtime'] = rtime
+    return testcase
 
 
 def writelog(file, test, type='json'):
@@ -667,50 +735,167 @@ def writelog(file, test, type='json'):
         pass
 
 
-def report():
-    global testnum, failnum, newwhitelist
-    testresults[' In all'] = testnum
-    testresults[' pass'] = testnum - failnum
-    testresults[' fail'] = failnum
-    curtime = getdate()
-    print("test result:")
-    n = 0
-    for k, v in testresults.items():
-        if k not in (' In all', ' pass', ' fail'):
-            print(n)
-            # print(v)
-            print(json.dumps(v))  # ,indent=2)
-            n += 1
-    not whitelist and writelog(whitefile, newwhitelist, 'str')
-    not os.path.exists(workpath + "result\\") and os.makedirs(workpath + "result\\")
-    writelog(workpath + "result\\%sjson.log" % curtime, testcases)
-    writelog(workpath + "result\\%sresult.log" % curtime, testresults)
-    writelog(workpath + "result\\%sdiff.log" % curtime, newwhitelist, 'str')
-    writelog(workpath + "result\\%s.txt" % curtime, testcases, 'pickle')
-    print("\n%s tests , %s pass , %s fail " % (testnum, testnum - failnum, failnum))
+def report(testcases):
+    global sub_log_dir
+    total = 0
+    fail = 0
+    fail_case = []
+    pass_case = []
+
+    for rtime in testcases:
+        total += 1
+        if testcases[rtime]['diff']:
+            fail_case.append(rtime)
+            fail += 1
+        else:
+            pass_case.append(rtime)
+
+    # create ori diff
+    ori_diff = defaultdict(lambda: {})
+    for rtime in testcases:
+        if testcases[rtime]['ori_diff']:
+            ori_diff[rtime + ':' + testcases[rtime]['url']] = testcases[rtime]['ori_diff']
+    with open(sub_log_dir + 'ori_diff.json', 'w') as f:
+        f.write(json.dumps(ori_diff, sort_keys=True, indent=4,
+                           separators=(',', ': '), ensure_ascii=False))
+
+    # create result
+    result = defaultdict(lambda: {})
+    for rtime in testcases:
+        if testcases[rtime]['diff']:
+            result[rtime + ':' + testcases[rtime]['url']] = testcases[rtime]['diff']
+    with open(sub_log_dir + 'result.json', 'w') as f:
+        f.write(json.dumps(result, sort_keys=True, indent=4,
+                           separators=(',', ': '), ensure_ascii=False))
+
+    # create report
+    with open(sub_log_dir + 'report.txt', 'w') as f:
+        f.write('Total cases number: %d\n' % (total))
+        f.write('PASS cases number: %d\n' % (total - fail))
+        f.write('FAIL cases number: %d\n' % (fail))
+
+        f.write('FAIL cases list:\n')
+        for rtime in fail_case:
+            f.write('\t%s\n' % (testcases[rtime]['url']))
+
+        f.write('PASS cases list:\n')
+        for rtime in pass_case:
+            f.write('\t%s\n' % (testcases[rtime]['url']))
 
 
-if __name__ == "__main__":
+def get_info_from_record(recordfile):
     global LOG
-    LOG = MyLogger(os.path.abspath(sys.argv[0]).replace('py', 'log'), clevel=logging.DEBUG)
-    workpath = "d:\\pythontest\\"
-    if not os.path.exists(workpath):
-        workpath = sys.path[0] + '\\'
-    recordfile = workpath + "api\\record.gor"
-    if not os.path.exists(recordfile):
-        print("api record file not exist, exit test!")
+    session = ''
+    sessionid = ''
+    dataflow = {}
+    pattern = re.compile(r'(\w+)')
+    try:
+        for i in open(recordfile, encoding='utf-16-le'):
+            if not i.startswith("\n"):
+                i = i.replace("\ufeff", "")
+                session += i
+            if i.startswith("Request id: "):
+                id, sessionid = (int(pattern.findall(i)[4]), pattern.findall(i)[3])
+            if i.startswith(sessionid + " end"):
+                if re.search(r'^Request url.*js$', session, re.M) or re.search(r'^Request url.*css$', session, re.M) or re.search(r'^Request url.*png$', session, re.M):
+                    pass
+                else:
+                    LOG.debug('find ID: %d' % id)
+                    dataflow[id] = session
+                session = ''
+    except Exception as e:
+        LOG.error("record file: %s open error: %s, exit!" % (recordfile, str(e)))
         exit()
-    removefile = workpath + "api\\remove.gor"
-    whitefile = workpath + "config\\white.txt"
-    testcase_dir = workpath + "result\\"
-    whitelist = getwhitelist()
-    lasttestcase = gettestcase()
-    testresults = {}
-    testcases = {}
-    newwhitelist = {}
-    Queue = deque()
-    testnum = 0
-    failnum = 0
+
+    dataflow = sorted(dataflow.items(), key=lambda x: x[0], reverse=False)
+
+    for k, v in dataflow:
+        yield v
+
+
+def fix_whitelist():
+    global whitelist
+    for old_url in whitelist:
+        new_url, _, _ = setup(old_url, {})
+        if new_url != old_url:
+            LOG.debug('old url: %s' % old_url)
+            LOG.debug('new url: %s' % new_url)
+            if new_url in whitelist:
+                whitelist[new_url].update(whitelist[old_url])
+            else:
+                whitelist[new_url] = copy.deepcopy(whitelist[old_url])
+            del(whitelist[old_url])
+
+
+def _replayone(record):
+    global sub_log_dir
+    global whitelist
+    whitelist = get_whitelist(record)
     update_token()
-    run({})
-    report()
+    testcases = {}
+    LOG.info(config.record_dir + record)
+    for rr_pair in get_info_from_record(config.record_dir + record):
+        # LOG.warn(rr_pair)
+        result = process(rr_pair)
+        result["ori_diff"] = copy.deepcopy(result["diff"])
+
+        fix_whitelist()
+
+        if result["url"] in whitelist:
+            dict_sub(result["diff"], whitelist[result["url"]])
+
+        if result["diff"]:
+            LOG.warn('url: %s' % result["url"] + convert_to_dictstr(result["diff"]))
+            LOG.error('FAIL' + '\n' + '-' * 30 + '\n\n')
+        else:
+            LOG.info('PASS' + '\n' + '-' * 30 + '\n\n')
+        testcases[result["rtime"]] = result
+
+    if not whitelist:
+        create_whitelist(testcases, config.white_list_dir + record.replace('.gor', '.json'))
+
+    else:
+        # LOG.warn(convert_to_dictstr(whitelist))
+        pass
+
+    return testcases
+
+
+def replay(record_list, rLOG):
+    global testresults
+    testresults = {}
+    global testcases
+    testcases = {}
+    global newwhitelist
+    newwhitelist = {}
+    global testnum
+    testnum = 0
+    global failnum
+    failnum = 0
+    global LOG
+    LOG = rLOG
+
+    global log_dir
+    log_dir = config.result_dir + datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + os.path.sep
+    try:
+        os.mkdir(log_dir)
+    except Exception as er:
+        LOG.error('Can not create log dir: %s\n[[%s]]' % (log_dirr, str(er)))
+        sys.exit()
+
+    temp_LOG = LOG
+    for record in record_list:
+        LOG = temp_LOG
+        LOG.yinfo('To replay module: %s...' % record)
+        global sub_log_dir
+        sub_log_dir = log_dir + PurePosixPath(record).stem + os.path.sep
+        global fitters
+        fitters = import_module('fitters.' + PurePosixPath(record).stem + '_fitter')
+        try:
+            os.mkdir(sub_log_dir)
+        except Exception as er:
+            LOG.error('Can not create log dir: %s\n[[%s]]' % (sub_log_dir, str(er)))
+            sys.exit()
+
+        LOG = MyLogger(sub_log_dir + '%s.log' % PurePosixPath(record).stem, clevel=logging.DEBUG)
+        report(_replayone(record))
