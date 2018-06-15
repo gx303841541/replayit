@@ -1,7 +1,8 @@
-import urllib.parse
 import re
+import urllib.parse
 
-def rule(str,body,header,pstr):
+
+def rule(str, body, header, pstr):
     """
     url=str.split('Request ')[3].split("?")[0].split(" ")[1].replace("\n","")
     if url=='www.3663.com/api/msg/send':
@@ -9,4 +10,5 @@ def rule(str,body,header,pstr):
         token=urllib.parse.quote(body["data"])
         pstr,_=re.subn("content=(.*)&","content="+token+"&",pstr)
     """
+    print()
     return pstr
