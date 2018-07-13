@@ -38,10 +38,10 @@ class Handlers
 	//public static var filterUrl = "www.3663.com";
 	//public static var filePath = "D:\\pythontest\\api\\";
 	public static var lock = 0;
-	public static var configfile="d:\\pythontest\\fiddlerjs\\fiddlerjsconf.ini";
+	public static var configfile="C:\\replayit\\fiddlerjs\\fiddlerjsconf.ini";
 	public static var isautocap=1;
 	public static var filterUrl="www.3663.com";
-	public static var filePath="D:\\pythontest\\api\\";
+	public static var filePath="C:\\httpapi-master\\api";
 
 	static function loadconf(configfile){
 		var js='{"filePath":"d","filterUrl":"www.3663.cn","isautocap":"0"}';

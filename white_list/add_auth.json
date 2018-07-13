@@ -1,0 +1,6 @@
+{
+    "http://10.101.70.236:81/scp-accesscontrolapp/auths/add": {
+        "code": "00000 vs 00014",
+        "message": "success vs "
+    }
+}

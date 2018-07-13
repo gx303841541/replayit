@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import pickle
+import random
 import re
 import sys
 import time
@@ -24,6 +25,10 @@ import requests
 import config
 import middleware
 from basic.log_tool import MyLogger
+
+
+def get_timestr_by_diff(strf='%Y-%m-%d %H:%M:%S', **timediff):
+    return (datetime.datetime.now() + datetime.timedelta(**timediff)).strftime(strf)
 
 
 def convert_to_dictstr(src):
@@ -586,10 +591,13 @@ def update_config_from_resp(body, target):
 
 def update_req_by_config(url, body, target):
     config.__dict__['store'] = 'xxoo'
-    if not target['key'] in config.__dict__:
+    if 'key' in target and not target['key'] in config.__dict__:
         LOG.warn('fix url: %s failed, [%s] not found in config!' % (url, target['key']))
         return url, body
-    value = config.__dict__[target['key']]
+    elif 'value' in target:
+        value = data_wash_core(target['value'])
+    else:
+        value = config.__dict__[data_wash_core(target['key'])]
     target_field = body
     field_list = target['field'].split('.')
     if target_field:
@@ -626,10 +634,10 @@ def update_req_by_config(url, body, target):
                 elif type(target_field[item]) == type([]) or type(target_field[item]) == type({}):
                     target_field = target_field[item]
                 else:
-                    if target['key'] == 'store':
+                    if 'key' in target and target['key'] == 'store':
                         config.__dict__[item] = target_field[item]
                     else:
-                        target_field[item] = config.__dict__[target['key']]
+                        target_field[item] = value
 
     if re.match(r'\w+', target['field']):
         url = re.sub(r'%s=\w+' % (target['field']), '%s=%s' % (target['field'], value), url)
@@ -880,8 +888,8 @@ def replay(record_list, rLOG):
     try:
         os.mkdir(log_dir)
     except Exception as er:
-        LOG.error('Can not create log dir: %s\n[[%s]]' % (log_dirr, str(er)))
-        sys.exit()
+        LOG.error('Can not create log dir: %s\n[[%s]]' % (log_dir, str(er)))
+        # sys.exit()
 
     temp_LOG = LOG
     for record in record_list:
@@ -895,7 +903,7 @@ def replay(record_list, rLOG):
             os.mkdir(sub_log_dir)
         except Exception as er:
             LOG.error('Can not create log dir: %s\n[[%s]]' % (sub_log_dir, str(er)))
-            sys.exit()
+            # sys.exit()
 
         LOG = MyLogger(sub_log_dir + '%s.log' % PurePosixPath(record).stem, clevel=logging.DEBUG)
         report(_replayone(record))

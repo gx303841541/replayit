@@ -1,0 +1,7 @@
+{
+    "http://192.168.0.236:81/scp-broadcastapp/task/batchCreate": {
+        "code": "00001 vs 00000",
+        "data": "即时广播任务创建成功了吗？ vs 即时广播任务创建成功",
+        "message": "success, yes! vs success"
+    }
+}

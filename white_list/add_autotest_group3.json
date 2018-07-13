@@ -1,0 +1,5 @@
+{
+    "http://10.101.70.236:81/scp-accesscontrolapp/deviceGroup/insertDeviceGroup": {
+        "response code": "200 vs 500"
+    }
+}

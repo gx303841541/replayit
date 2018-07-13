@@ -1,0 +1,11 @@
+{
+    "http://10.101.70.236:81/scp-accesscontrolapp/deviceGroup/listDeviceGroup": {
+        "data": {
+            "0": {
+                "createTime": "1531219766080 vs 1531219822294",
+                "updateTime": "1531219766080 vs 1531219822294",
+                "uuid": "9bb42d9e019f40969367c45a08e76b8e vs 0e77251fa45243e0b52382e335392cdb"
+            }
+        }
+    }
+}

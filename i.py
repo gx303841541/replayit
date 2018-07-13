@@ -322,7 +322,7 @@ if __name__ == "__main__":
     i = 0
     rs = []
     for pic in all_pics * 10:
-        if i >= 249:
+        if i >= 1:
             break
         if re.search(r'\.jpg$', pic):
             LOG.debug('create info for pic: %s' % pic)
@@ -337,10 +337,10 @@ if __name__ == "__main__":
             r["phone"] = "1888885" + id
             r["fileName"] = r["name"] + '.jpg'
             r["facePicBase64"] = "data:image/" + pic_type + ';base64,' + pic_str
-            #r["fingerCode1"] = fingerCode_list[random.randint(0, len(fingerCode_list) - 1)]
+            r["fingerCode1"] = fingerCode_list[random.randint(0, len(fingerCode_list) - 1)]
             i += 1
             rs.append(r)
-            #LOG.warn('name: %s, picname: %s, fingerCode1: %s' % (r["name"], pic, r["fingerCode1"]))
+            LOG.warn('name: %s, picname: %s, fingerCode1: %s' % (r["name"], pic, r["fingerCode1"]))
         else:
             continue
 

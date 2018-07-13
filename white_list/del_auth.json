@@ -1,0 +1,9 @@
+{
+    "http://10.101.70.236:81/scp-accesscontrolapp/auths/cancel?authId=17f73354752147fc842f84c18814a478": {
+        "code": "00000 vs 00009",
+        "message": "success vs 要删除的授权记录不存在"
+    },
+    "http://10.101.70.236:81/scp-accesscontrolapp/auths/enable?authId=17f73354752147fc842f84c18814a478&mode=0": {
+        "response code": "200 vs 500"
+    }
+}

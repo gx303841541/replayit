@@ -41,6 +41,14 @@ class ArgHandle():
             default=[],
             help='Specify replay files',
         )
+        parser.add_argument(
+            '-c', '--count',
+            dest='count',
+            action='store',
+            default=1,
+            type=int,
+            help='Specify how many times to replay',
+        )
         return parser
 
     def get_args(self, attrname):
@@ -105,14 +113,15 @@ def sys_cleanup():
 
 if __name__ == '__main__':
     sys_init()
-
-    # get replay recoreds
-    if arg_handle.get_args('file_lists'):
-        replay(arg_handle.get_args('file_lists'), LOG)
-    elif config.replay_files:
-        replay(config.replay_files, LOG)
-    else:
-        LOG.error('No record file given!')
+    for i in range(arg_handle.get_args('count')):
+        LOG.info('Replay %d times:' % (i + 1))
+        # get replay recoreds
+        if arg_handle.get_args('file_lists'):
+            replay(arg_handle.get_args('file_lists'), LOG)
+        elif config.replay_files:
+            replay(config.replay_files, LOG)
+        else:
+            LOG.error('No record file given!')
 
     my_cmd = MyCmd(logger=LOG)
     # my_cmd.cmdloop()
