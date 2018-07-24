@@ -23,7 +23,6 @@ import psycopg2
 import requests
 
 import config
-import middleware
 from basic.log_tool import MyLogger
 
 
